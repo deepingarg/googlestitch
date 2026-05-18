@@ -55,10 +55,8 @@ async function generateScreens(description, style, platform, count) {
   try {
     const mod = await import('@google/stitch-sdk');
     StitchToolClient = mod.StitchToolClient;
-  } catch {
-    console.error('SDK Import Error:', err);
-    throw new Error('SDK Import Error: ' + err.message);
-    //throw new Error('SDK not installed. Run: npm install');
+  } catch (err) {
+    throw new Error('SDK not installed or failed to load: ' + (err && err.message));
   }
 
   if (!STITCH_API_KEY || STITCH_API_KEY === KEY_PLACEHOLDER) {
@@ -169,7 +167,7 @@ export default async function handler(req, res) {
   const description = (payload.description || '').trim();
   const style       = (payload.style || 'Modern and Minimal').trim();
   const platform    = payload.platform === 'web' ? 'web' : 'mobile';
-  const count       = Math.max(1, Math.min(parseInt(payload.count) || 1, 2));
+  const count       = 1; // Vercel: cap at 1 — Stitch generation can take 30-60s per screen
 
   if (!description) {
     res.status(400).json({ error: 'description is required' });
