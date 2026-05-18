@@ -228,6 +228,74 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // High-quality screenshot endpoint — re-renders Stitch HTML at 2× using local Chrome
+  if (req.method === 'POST' && req.url === '/api/screenshot') {
+    let payload;
+    try {
+      payload = await readBody(req);
+    } catch {
+      sendJSON(res, 400, { error: 'Invalid JSON' });
+      return;
+    }
+
+    const { html, width = 390, height = 844 } = payload;
+    if (!html) { sendJSON(res, 400, { error: 'html is required' }); return; }
+
+    // Find Chrome/Chromium installed on this machine
+    const chromeCandidates = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      (process.env.LOCALAPPDATA || '') + '\\Google\\Chrome\\Application\\chrome.exe',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ];
+    const executablePath = chromeCandidates.find(p => p && fs.existsSync(p));
+    if (!executablePath) {
+      sendJSON(res, 500, { error: 'Chrome not found on this machine' });
+      return;
+    }
+
+    let browser;
+    try {
+      const { default: puppeteer } = await import('puppeteer-core');
+      const w = Math.round(Number(width)  || 390);
+      const h = Math.round(Number(height) || 844);
+      browser = await puppeteer.launch({
+        executablePath,
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          `--window-size=${w * 2},${h * 2}`,
+        ],
+        defaultViewport: null,
+      });
+      const page = await browser.newPage();
+      await page.setViewport({ width: w, height: h, deviceScaleFactor: 2 });
+      await page.setContent(html, { waitUntil: 'networkidle2', timeout: 30000 });
+      const screenshot = await page.screenshot({
+        type: 'png',
+        clip: { x: 0, y: 0, width: w, height: h },
+      });
+      setCORS(res);
+      res.writeHead(200, {
+        'Content-Type':        'image/png',
+        'Content-Length':      screenshot.length,
+        'Content-Disposition': 'attachment; filename="design.png"',
+      });
+      res.end(screenshot);
+      console.log('  [screenshot] 2× PNG sent (' + screenshot.length + ' bytes)');
+    } catch (err) {
+      console.error('  [screenshot] ERROR: ' + err.message);
+      sendJSON(res, 500, { error: 'Screenshot failed: ' + err.message });
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+    return;
+  }
+
   // Main generation endpoint
   if (req.method === 'POST' && req.url === '/generate') {
     let payload;
