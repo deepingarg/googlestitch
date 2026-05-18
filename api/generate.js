@@ -56,7 +56,9 @@ async function generateScreens(description, style, platform, count) {
     const mod = await import('@google/stitch-sdk');
     StitchToolClient = mod.StitchToolClient;
   } catch {
-    throw new Error('SDK not installed. Run: npm install');
+    console.error('SDK Import Error:', err);
+    throw new Error('SDK Import Error: ' + err.message);
+    //throw new Error('SDK not installed. Run: npm install');
   }
 
   if (!STITCH_API_KEY || STITCH_API_KEY === KEY_PLACEHOLDER) {
