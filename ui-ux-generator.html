@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>DesignAI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -577,19 +578,64 @@ function renderResults(results, desc, plat) {
   document.getElementById('results-section').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-// Download: capture the SAME iframe shown in the preview (guarantees exact match)
+// Download: renders the design HTML inside a hidden full-size iframe,
+// injects html2canvas into that iframe, and captures at 2\u00d7 scale.
+// Because html2canvas runs inside the iframe (same origin as the content),
+// Google Fonts and Material Icons are already loaded by the browser \u2014
+// no CORS issues, no server-side Puppeteer needed.
 async function downloadImage(v) {
   var d = window['__i'+v];
   if (!d) return;
   var lbl = document.getElementById('dlt'+v);
-  lbl.textContent = 'Downloading...';
-  var a = document.createElement('a');
-  a.href = 'data:' + d.mime + ';base64,' + d.b64;
-  a.download = d.fname;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(function() { lbl.textContent = '\u2193 Download Image'; }, 1500);
+  lbl.textContent = 'Rendering\u2026';
+
+  var iframe, blobUrl;
+  try {
+    // 1 \u2014 create a hidden full-size iframe and load the design HTML
+    blobUrl = URL.createObjectURL(new Blob([d.html], { type: 'text/html' }));
+    iframe  = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;border:none;visibility:hidden;';
+    iframe.width  = d.iW;
+    iframe.height = d.iH;
+    document.body.appendChild(iframe);
+    iframe.src = blobUrl;
+    await new Promise(function(res) { iframe.onload = res; });
+
+    // 2 \u2014 give fonts/icons a moment to finish painting
+    await new Promise(function(res) { setTimeout(res, 1800); });
+
+    // 3 \u2014 inject html2canvas into the iframe's own JS context
+    await new Promise(function(res, rej) {
+      var s = iframe.contentDocument.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload = res; s.onerror = rej;
+      iframe.contentDocument.head.appendChild(s);
+    });
+
+    // 4 \u2014 run html2canvas at 2\u00d7 inside the iframe (fonts already rendered there)
+    var dataUrl = await iframe.contentWindow.html2canvas(
+      iframe.contentDocument.body,
+      { scale: 2, width: d.iW, height: d.iH, useCORS: true, logging: false }
+    ).then(function(c) { return c.toDataURL('image/png'); });
+
+    // 5 \u2014 trigger download
+    var a = document.createElement('a');
+    a.href = dataUrl; a.download = d.fname;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+
+  } catch (e) {
+    console.warn('iframe html2canvas failed, using Stitch screenshot:', e.message);
+    // Fallback: use the original Stitch 1\u00d7 screenshot
+    var a = document.createElement('a');
+    a.href = 'data:' + d.mime + ';base64,' + d.b64;
+    a.download = d.fname;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } finally {
+    if (iframe) document.body.removeChild(iframe);
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+  }
+
+  setTimeout(function() { lbl.textContent = '\u2193 Download Image'; }, 1000);
 }
 
 
